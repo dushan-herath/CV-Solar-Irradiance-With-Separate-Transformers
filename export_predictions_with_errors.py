@@ -107,7 +107,7 @@ if __name__ == "__main__":
     )
 
     # --- Save results ---
-    save_path = "forecast_results_r21d.npz"
+    save_path = "forecast_results.npz"
     np.savez_compressed(
         save_path,
         preds=preds_denorm,

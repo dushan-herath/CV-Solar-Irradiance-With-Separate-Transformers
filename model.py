@@ -31,46 +31,46 @@ class VideoR2Plus1DEncoder(nn.Module):
         """
         super().__init__()
 
+        # Load weights
         if _HAS_WEIGHTS_ENUM and pretrained:
             weights = R2Plus1D_18_Weights.KINETICS400_V1
             self.backbone = r2plus1d_18(weights=weights)
+            print("Using torchvision R(2+1)D-18 with Kinetics-pretrained weights.")
         else:
-            # older torchvision accepts pretrained bool
             self.backbone = r2plus1d_18(pretrained=pretrained)
+            if pretrained:
+                print("Using older torchvision R(2+1)D-18 with pretrained=True.")
+            else:
+                print("Using R(2+1)D-18 without pretrained weights (random init).")
 
-        # remove classification head, keep feature extractor
-        # r2plus1d_18 has `fc` classifier similar to ResNet
+        # remove classification head
         self.backbone.fc = nn.Identity()
-        self.out_dim = 512  # r2plus1d_18 final feature dim
+        self.out_dim = 512
 
+        # Freeze parameters if required
         if freeze:
             for p in self.backbone.parameters():
                 p.requires_grad = False
+            print("All backbone layers frozen.")
 
+        # Unfreeze last N stages
         if unfreeze_last > 0:
-            # ResNet-like stages are layer1..layer4
             stages = [self.backbone.layer1, self.backbone.layer2,
                       self.backbone.layer3, self.backbone.layer4]
             n = min(unfreeze_last, len(stages))
             for stage in stages[-n:]:
                 for p in stage.parameters():
                     p.requires_grad = True
+            print(f"Unfreezing last {n} ResNet stages: {[4-n+i+1 for i in range(n)]}")
 
-            # also unfreeze any final norm / head if present (defensive)
             if hasattr(self.backbone, "bn2"):
                 for p in self.backbone.bn2.parameters():
                     p.requires_grad = True
+                print("Also unfroze final batch norm layer bn2 (if exists).")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: (B, T, C, H, W)
-        Returns:
-            features: (B, out_dim)
-        """
-        # permute to (B, C, T, H, W)
         x = x.permute(0, 2, 1, 3, 4)
-        feats = self.backbone(x)  # (B, out_dim) because fc is Identity
+        feats = self.backbone(x)
         return feats
 
 
@@ -108,8 +108,10 @@ class TSTransformer(nn.Module):
 # --------------------------------------------------
 class FusionRegressor(nn.Module):
     def __init__(self, img_dim: int, ts_dim: int, hidden: int = 256,
-                 horizon: int = 25, target_dim: int = 1):
+                 horizon: int = 25, target_dim: int = 1, dropout_p: float = 0.3):
         super().__init__()
+        self.dropout = nn.Dropout(p=dropout_p)
+
         self.fc = nn.Sequential(
             nn.Linear(img_dim * 2 + ts_dim, hidden),
             nn.GELU(),
@@ -126,6 +128,7 @@ class FusionRegressor(nn.Module):
 
     def forward(self, img1: torch.Tensor, img2: torch.Tensor, ts: torch.Tensor) -> torch.Tensor:
         fused = torch.cat([img1, img2, ts], dim=-1)
+        fused = self.dropout(fused)
         out = self.fc(fused)
         return out.view(-1, self.horizon, self.target_dim)
 

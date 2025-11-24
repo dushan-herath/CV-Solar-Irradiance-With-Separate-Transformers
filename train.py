@@ -89,7 +89,7 @@ if __name__ == "__main__":
 
     # --- Config ---
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    BATCH_SIZE = 16
+    BATCH_SIZE = 2
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     IMG_SEQ_LEN = 16
@@ -123,15 +123,15 @@ if __name__ == "__main__":
             "std": train_ds.normalization_stats["std"].to_dict()
         }, f, indent=4)
 
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
     # --- Model setup ---
     model = MultimodalForecaster(
         ts_feat_dim=len(train_ds.feature_cols),
         horizon=HORIZON,
         target_dim=TARGET_DIM,
-        freeze_img=False  # Trainable R(2+1)D-18
+        freeze_img=True  # Trainable R(2+1)D-18
     ).to(DEVICE)
 
     total_params = sum(p.numel() for p in model.parameters())
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
     # --- Training setup ---
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=3e-5, weight_decay=1e-4)
     scaler = GradScaler(enabled=(DEVICE.type=="cuda"))
 
     # --- Resume from checkpoint if exists ---
