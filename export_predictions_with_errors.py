@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataset import IrradianceForecastDataset
-from model import MultimodalForecaster  # <- use your new model.py
+from model import MultimodalForecaster  # uses R(2+1)D-18
 
 
 @torch.no_grad()
@@ -23,7 +23,7 @@ def evaluate(model, loader, device, mean_targets, std_targets):
     model.eval()
     all_preds, all_targets = [], []
 
-    for sky_seq, flow_seq, ts_seq, targets, *_ in tqdm(loader, desc="Evaluating", leave=False):
+    for sky_seq, flow_seq, ts_seq, targets in tqdm(loader, desc="Evaluating", leave=False):
         sky_seq, flow_seq, ts_seq = sky_seq.to(device), flow_seq.to(device), ts_seq.to(device)
         preds = model(sky_seq, flow_seq, ts_seq)
 
@@ -43,7 +43,7 @@ def evaluate(model, loader, device, mean_targets, std_targets):
 
     # --- Compute errors ---
     errors = preds_denorm - targets_denorm
-    mse_per_horizon = np.mean(errors**2, axis=0)   # (horizon, target_dim)
+    mse_per_horizon = np.mean(errors**2, axis=0)
     mae_per_horizon = np.mean(np.abs(errors), axis=0)
     rmse_per_horizon = np.sqrt(mse_per_horizon)
 
@@ -56,11 +56,11 @@ if __name__ == "__main__":
 
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    IMG_SEQ_LEN = 5
+    IMG_SEQ_LEN = 16        # match training
     TS_SEQ_LEN = 30
     MAX_HORIZON = 25
     TARGET_DIM = 1
-    BATCH_SIZE = 12
+    BATCH_SIZE = 8          # smaller batch for large sequences
 
     print(f"Exporting predictions & metrics on {DEVICE} using best_model.pth")
 
@@ -83,7 +83,7 @@ if __name__ == "__main__":
         img_seq_len=IMG_SEQ_LEN,
         ts_seq_len=TS_SEQ_LEN,
         horizon=MAX_HORIZON,
-        normalization_stats=normalization_stats
+        normalization_stats=normalization_stats,
     )
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=1, pin_memory=True)
     print(f"Dataset initialized (VAL): {len(val_ds)} samples, horizon={MAX_HORIZON}")
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         ts_feat_dim=len(full_mean),
         horizon=MAX_HORIZON,
         target_dim=TARGET_DIM,
-        freeze_img=True  # keep same as during training
+        freeze_img=True
     ).to(DEVICE)
 
     if not os.path.exists("best_model.pth"):
@@ -101,13 +101,13 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load("best_model.pth", map_location=DEVICE))
     print("Loaded best_model.pth")
 
-    # --- Evaluate and collect results ---
+    # --- Evaluate ---
     preds_denorm, targets_denorm, mse, mae, rmse = evaluate(
         model, val_loader, DEVICE, mean_targets, std_targets
     )
 
     # --- Save results ---
-    save_path = "forecast_results.npz"
+    save_path = "forecast_results_r21d.npz"
     np.savez_compressed(
         save_path,
         preds=preds_denorm,
@@ -119,8 +119,5 @@ if __name__ == "__main__":
     )
 
     print(f"\nSaved full results -> {save_path}")
-    print(f"Shapes:")
-    print(f"preds={preds_denorm.shape}")
-    print(f"targets={targets_denorm.shape}")
-    print(f"mse/mae/rmse={mse.shape} (horizon × target_dim)")
+    print(f"Shapes: preds={preds_denorm.shape}, targets={targets_denorm.shape}, mse/mae/rmse={mse.shape}")
     print("Export complete!")
