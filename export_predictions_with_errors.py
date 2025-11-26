@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    IMG_SEQ_LEN = 16        # match training
+    IMG_SEQ_LEN = 5        # match training
     TS_SEQ_LEN = 30
     MAX_HORIZON = 25
     TARGET_DIM = 1
