@@ -14,16 +14,16 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from dataset import IrradianceForecastDataset
-from model import MultimodalForecaster  # uses R(2+1)D-18
+from model import ImageEncoder, MultimodalForecasterWithBranchTransformers  # updated
 
 
 @torch.no_grad()
 def evaluate(model, loader, device, mean_targets, std_targets):
     """Runs model inference and returns predictions, targets, and metrics."""
     model.eval()
-    all_preds, all_targets = [], []
+    all_preds, all_targets = []
 
-    for sky_seq, flow_seq, ts_seq, targets in tqdm(loader, desc="Evaluating", leave=False):
+    for sky_seq, flow_seq, ts_seq, targets, *_ in tqdm(loader, desc="Evaluating", leave=False):
         sky_seq, flow_seq, ts_seq = sky_seq.to(device), flow_seq.to(device), ts_seq.to(device)
         preds = model(sky_seq, flow_seq, ts_seq)
 
@@ -89,11 +89,22 @@ if __name__ == "__main__":
     print(f"Dataset initialized (VAL): {len(val_ds)} samples, horizon={MAX_HORIZON}")
 
     # --- Model setup ---
-    model = MultimodalForecaster(
+    sky_encoder = ImageEncoder(model_name="vit_base_patch16_224", pretrained=True, freeze=True)
+    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+
+    model = MultimodalForecasterWithBranchTransformers(
+        sky_encoder=sky_encoder,
+        flow_encoder=flow_encoder,
         ts_feat_dim=len(full_mean),
+        ts_embed_dim=64,
+        fused_dim=128,
+        branch_d_model=128,
+        branch_num_layers=2,
+        branch_nhead=4,
+        branch_ff_dim=256,
+        fusion_dropout=0.2,
         horizon=MAX_HORIZON,
-        target_dim=TARGET_DIM,
-        freeze_img=True
+        target_dim=TARGET_DIM
     ).to(DEVICE)
 
     if not os.path.exists("best_model.pth"):

@@ -1,15 +1,15 @@
-# train_option_b.py
 import os
 import torch
-from torch import nn, optim
-from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler
-from tqdm import tqdm
 import json
+import numpy as np
+from torch.utils.data import DataLoader
+from torch import nn, optim
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from dataset import IrradianceForecastDataset
-from model import MultimodalForecaster  # <- uses R(2+1)D-18 encoders
+from model import ImageEncoder, MultimodalForecasterWithBranchTransformers
+
 
 # ------------------ Training + Validation ------------------
 
@@ -17,40 +17,53 @@ def train_one_epoch(model, loader, optimizer, criterion, device, scaler):
     model.train()
     total_loss = 0.0
     loop = tqdm(loader, total=len(loader), desc="Training", leave=False)
+
     for sky_seq, flow_seq, ts_seq, targets, *_ in loop:
-        sky_seq, flow_seq, ts_seq, targets = map(lambda x: x.to(device, non_blocking=True),
-                                                 (sky_seq, flow_seq, ts_seq, targets))
-        optimizer.zero_grad(set_to_none=True)
-        with torch.cuda.amp.autocast(enabled=(device.type=="cuda")):
+        sky_seq = sky_seq.to(device)
+        flow_seq = flow_seq.to(device)
+        ts_seq = ts_seq.to(device)
+        targets = targets.to(device)
+
+        optimizer.zero_grad()
+
+        # Mixed Precision Forward Pass
+        with torch.cuda.amp.autocast():
             preds = model(sky_seq, flow_seq, ts_seq)
             loss = criterion(preds, targets)
+
+        # Backward with GradScaler
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
+
         total_loss += loss.item()
-        loop.set_postfix(batch_loss=loss.item())
-    return total_loss / max(1, len(loader))
+        loop.set_postfix(loss=loss.item())
+
+    return total_loss / len(loader)
 
 
 def validate_one_epoch(model, loader, criterion, device):
     model.eval()
     total_loss = 0.0
-    loop = tqdm(loader, total=len(loader), desc="Validation", leave=False)
     with torch.no_grad():
+        loop = tqdm(loader, total=len(loader), desc="Validation", leave=False)
         for sky_seq, flow_seq, ts_seq, targets, *_ in loop:
-            sky_seq, flow_seq, ts_seq, targets = map(lambda x: x.to(device, non_blocking=True),
-                                                     (sky_seq, flow_seq, ts_seq, targets))
+            sky_seq = sky_seq.to(device)
+            flow_seq = flow_seq.to(device)
+            ts_seq = ts_seq.to(device)
+            targets = targets.to(device)
+
             preds = model(sky_seq, flow_seq, ts_seq)
             loss = criterion(preds, targets)
             total_loss += loss.item()
-            loop.set_postfix(batch_loss=loss.item())
-    return total_loss / max(1, len(loader))
+
+    return total_loss / len(loader)
 
 
 # ------------------ Utilities ------------------
 
 def plot_losses(train_losses, val_losses, save_path="training_curve.png"):
-    plt.figure(figsize=(8,5))
+    plt.figure(figsize=(8, 5))
     plt.plot(train_losses, label="Train Loss")
     plt.plot(val_losses, label="Val Loss")
     plt.xlabel("Epoch")
@@ -61,7 +74,7 @@ def plot_losses(train_losses, val_losses, save_path="training_curve.png"):
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
-    print(f"Saved training curve: {save_path}")
+    print(f"Saved loss plot to {save_path}")
 
 
 def save_checkpoint(state, filename="checkpoint.pth"):
@@ -75,8 +88,8 @@ def load_checkpoint(filename, model, optimizer, device):
     optimizer.load_state_dict(checkpoint["optimizer_state"])
     epoch = checkpoint["epoch"]
     best_val_loss = checkpoint["best_val_loss"]
-    train_losses = checkpoint.get("train_losses", [])
-    val_losses = checkpoint.get("val_losses", [])
+    train_losses = checkpoint["train_losses"]
+    val_losses = checkpoint["val_losses"]
     print(f"Resumed from checkpoint: epoch {epoch+1} | best val loss = {best_val_loss:.5f}")
     return epoch, best_val_loss, train_losses, val_losses
 
@@ -85,14 +98,14 @@ def load_checkpoint(filename, model, optimizer, device):
 
 if __name__ == "__main__":
     import torch.multiprocessing as mp
-    mp.freeze_support()
+    mp.freeze_support()  
 
     # --- Config ---
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    BATCH_SIZE = 16
+    BATCH_SIZE = 4
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    IMG_SEQ_LEN = 16
+    IMG_SEQ_LEN = 5
     TS_SEQ_LEN = 30
     HORIZON = 25
     TARGET_DIM = 1
@@ -105,7 +118,7 @@ if __name__ == "__main__":
         split="train",
         img_seq_len=IMG_SEQ_LEN,
         ts_seq_len=TS_SEQ_LEN,
-        horizon=HORIZON
+        horizon=HORIZON,
     )
     val_ds = IrradianceForecastDataset(
         csv_path=CSV_PATH,
@@ -113,35 +126,63 @@ if __name__ == "__main__":
         img_seq_len=IMG_SEQ_LEN,
         ts_seq_len=TS_SEQ_LEN,
         horizon=HORIZON,
-        normalization_stats=train_ds.normalization_stats
+        normalization_stats=train_ds.normalization_stats,
     )
 
     # Save normalization stats
-    with open("norm_stats.json", "w") as f:
-        json.dump({
+    json.dump(
+        {
             "mean": train_ds.normalization_stats["mean"].to_dict(),
-            "std": train_ds.normalization_stats["std"].to_dict()
-        }, f, indent=4)
+            "std": train_ds.normalization_stats["std"].to_dict(),
+        },
+        open("norm_stats.json", "w"),
+        indent=4
+    )
 
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
     # --- Model setup ---
-    model = MultimodalForecaster(
+    sky_encoder = ImageEncoder(model_name="vit_base_patch16_224", pretrained=True, freeze=True)
+    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+
+    model = MultimodalForecasterWithBranchTransformers(
+        sky_encoder=sky_encoder,
+        flow_encoder=flow_encoder,
         ts_feat_dim=len(train_ds.feature_cols),
+        ts_embed_dim=64,
+        fused_dim=128,
+        branch_d_model=128,
+        branch_num_layers=2,
+        branch_nhead=4,
+        branch_ff_dim=256,
+        fusion_dropout=0.2,
         horizon=HORIZON,
-        target_dim=TARGET_DIM,
-        freeze_img=True  # Trainable R(2+1)D-18
+        target_dim=TARGET_DIM
     ).to(DEVICE)
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model ready on {DEVICE} | Total: {total_params/1e6:.2f}M | Trainable: {trainable_params/1e6:.2f}M")
+
+    print(
+        f"Model ready on {DEVICE} | "
+        f"Total: {total_params/1e6:.2f}M | "
+        f"Trainable: {trainable_params/1e6:.2f}M"
+    )
 
     # --- Training setup ---
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=3e-5, weight_decay=1e-4)
-    scaler = GradScaler(enabled=(DEVICE.type=="cuda"))
+    
+    optimizer = torch.optim.AdamW([
+        {"params": model.sky_encoder.parameters(), "lr": 1e-5},
+        {"params": model.flow_encoder.parameters(), "lr": 1e-5},
+        {"params": model.ts_encoder.parameters(), "lr": 1e-4},
+        {"params": model.fusion.parameters(), "lr": 1e-4},
+        {"params": model.temporal.parameters(), "lr": 1e-4},
+        {"params": model.head.parameters(), "lr": 1e-4},
+    ], weight_decay=1e-4)
+
+    scaler = torch.amp.GradScaler(device=DEVICE.type if DEVICE.type == "cuda" else "cpu")
 
     # --- Resume from checkpoint if exists ---
     start_epoch = 0
@@ -155,30 +196,32 @@ if __name__ == "__main__":
 
     # --- Training loop ---
     for epoch in range(start_epoch, NUM_EPOCHS):
-        print(f"\nEpoch {epoch+1}/{NUM_EPOCHS}")
+        print(f"\nEpoch {epoch + 1}/{NUM_EPOCHS}")
+
         train_loss = train_one_epoch(model, train_loader, optimizer, criterion, DEVICE, scaler)
         val_loss = validate_one_epoch(model, val_loader, criterion, DEVICE)
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+
         print(f"Train Loss: {train_loss:.5f} | Val Loss: {val_loss:.5f}")
 
-        # Save best model (state dict only)
+        # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), "best_model.pth")
             print("Best model updated!")
 
-        # Save full checkpoint
+        # Save checkpoint each epoch
         save_checkpoint({
             "epoch": epoch,
             "model_state": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
             "best_val_loss": best_val_loss,
             "train_losses": train_losses,
-            "val_losses": val_losses
+            "val_losses": val_losses,
         })
 
-    # Plot losses
     plot_losses(train_losses, val_losses)
-    print(f"\nTraining complete! Best val loss: {best_val_loss:.5f}")
+    print("\nTraining complete!")
+    print(f"Best Validation Loss: {best_val_loss:.5f}")
