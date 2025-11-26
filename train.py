@@ -16,9 +16,9 @@ from model import ImageEncoder, MultimodalForecasterWithBranchTransformers
 def train_one_epoch(model, loader, optimizer, criterion, device, scaler):
     model.train()
     total_loss = 0.0
-    loop = tqdm(loader, total=len(loader), desc="Training", leave=False)
+    loop = tqdm(loader, total=len(loader), desc="Training", leave=True)
 
-    for sky_seq, flow_seq, ts_seq, targets, *_ in loop:
+    for i, (sky_seq, flow_seq, ts_seq, targets, *_) in enumerate(loop):
         sky_seq = sky_seq.to(device)
         flow_seq = flow_seq.to(device)
         ts_seq = ts_seq.to(device)
@@ -37,7 +37,9 @@ def train_one_epoch(model, loader, optimizer, criterion, device, scaler):
         scaler.update()
 
         total_loss += loss.item()
-        loop.set_postfix(loss=loss.item())
+        avg_loss = total_loss / (i + 1)
+
+        loop.set_postfix({"batch_loss": loss.item(), "avg_loss": avg_loss}, refresh=True)
 
     return total_loss / len(loader)
 
@@ -45,9 +47,10 @@ def train_one_epoch(model, loader, optimizer, criterion, device, scaler):
 def validate_one_epoch(model, loader, criterion, device):
     model.eval()
     total_loss = 0.0
+    loop = tqdm(loader, total=len(loader), desc="Validation", leave=True)
+
     with torch.no_grad():
-        loop = tqdm(loader, total=len(loader), desc="Validation", leave=False)
-        for sky_seq, flow_seq, ts_seq, targets, *_ in loop:
+        for i, (sky_seq, flow_seq, ts_seq, targets, *_) in enumerate(loop):
             sky_seq = sky_seq.to(device)
             flow_seq = flow_seq.to(device)
             ts_seq = ts_seq.to(device)
@@ -55,7 +58,10 @@ def validate_one_epoch(model, loader, criterion, device):
 
             preds = model(sky_seq, flow_seq, ts_seq)
             loss = criterion(preds, targets)
+
             total_loss += loss.item()
+            avg_loss = total_loss / (i + 1)
+            loop.set_postfix({"batch_loss": loss.item(), "avg_loss": avg_loss}, refresh=True)
 
     return total_loss / len(loader)
 
@@ -102,7 +108,7 @@ if __name__ == "__main__":
 
     # --- Config ---
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    BATCH_SIZE = 16
+    BATCH_SIZE = 64
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     IMG_SEQ_LEN = 5
@@ -143,7 +149,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
     # --- Model setup ---
-    sky_encoder = ImageEncoder(model_name="vit_base_patch16_224", pretrained=True, freeze=True)
+    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
     flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
 
     model = MultimodalForecasterWithBranchTransformers(
@@ -178,7 +184,7 @@ if __name__ == "__main__":
         {"params": model.flow_encoder.parameters(), "lr": 1e-5},
         {"params": model.ts_encoder.parameters(), "lr": 1e-4},
         {"params": model.fusion.parameters(), "lr": 1e-4},
-        {"params": model.temporal.parameters(), "lr": 1e-4},
+        #{"params": model.temporal.parameters(), "lr": 1e-4},
         {"params": model.head.parameters(), "lr": 1e-4},
     ], weight_decay=1e-4)
 

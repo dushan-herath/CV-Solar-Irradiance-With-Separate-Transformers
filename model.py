@@ -281,9 +281,6 @@ class MultimodalForecasterWithBranchTransformers(nn.Module):
         # Fusion module
         self.fusion = GatedFusion(img_dim=branch_d_model*2, ts_dim=branch_d_model, fused_dim=fused_dim, dropout=fusion_dropout)
 
-        # Optional temporal transformer after fusion
-        self.temporal = FusionTransformer(input_dim=fused_dim, d_model=fused_dim, nhead=branch_nhead, num_layers=branch_num_layers, dim_feedforward=branch_ff_dim, dropout=fusion_dropout)
-
         self.horizon = horizon
         self.target_dim = target_dim
 
@@ -298,13 +295,6 @@ class MultimodalForecasterWithBranchTransformers(nn.Module):
             nn.LayerNorm(fused_dim // 2),
             nn.Dropout(fusion_dropout),
             nn.Linear(fused_dim // 2, horizon * target_dim)
-        )
-
-        # Attention pooling
-        self.attn_pool = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim // 2),
-            nn.GELU(),
-            nn.Linear(fused_dim // 2, 1)
         )
 
     def forward(self, sky_imgs, flow_imgs, ts):
@@ -327,18 +317,14 @@ class MultimodalForecasterWithBranchTransformers(nn.Module):
         # Fuse modalities
         fused_feats = self.fusion(torch.cat([sky_feats, flow_feats], dim=-1), ts_feats)
 
-        # Temporal transformer
-        out_seq = self.temporal(fused_feats)
-
-        # Attention pooling
-        scores = self.attn_pool(out_seq)
-        weights = torch.softmax(scores, dim=1)
-        context = (weights * out_seq).sum(dim=1)
+        # Skip temporal transformer and attention pooling
+        context = fused_feats.mean(dim=1)  # simple average over time dimension
 
         # Regression
         out = self.head(context)
         out = out.view(B, self.horizon, self.target_dim)
         return out
+
 
 
 # =========================================
