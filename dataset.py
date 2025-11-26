@@ -18,7 +18,7 @@ class IrradianceForecastDataset(Dataset):
         horizon: int = 25,
         feature_cols=None,
         target_cols=None,
-        img_size: int = 112,
+        img_size: int = 224,
         time_col: str = "timestamp",
         normalization_stats: dict = None,
     ):
