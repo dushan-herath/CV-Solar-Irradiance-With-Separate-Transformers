@@ -282,7 +282,7 @@ class MultimodalForecasterWithBranchTransformers(nn.Module):
 
         # Regression head
         self.head = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim),
+            nn.Linear(fused_dim*3, fused_dim),
             nn.GELU(),
             nn.LayerNorm(fused_dim),
             nn.Dropout(fusion_dropout),
@@ -311,7 +311,8 @@ class MultimodalForecasterWithBranchTransformers(nn.Module):
         ts_feats = self.ts_transformer(ts_feats)
 
         # Fuse modalities
-        fused_feats = self.fusion(torch.cat([sky_feats, flow_feats], dim=-1), ts_feats)
+        #fused_feats = self.fusion(torch.cat([sky_feats, flow_feats], dim=-1), ts_feats)
+        fused_feats = torch.cat([sky_feats, flow_feats, ts_feats], dim=-1)
 
         # Skip temporal transformer and attention pooling
         context = fused_feats.mean(dim=1)  # simple average over time dimension

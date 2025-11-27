@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    IMG_SEQ_LEN = 5        # match training
+    IMG_SEQ_LEN = 30        # match training
     TS_SEQ_LEN = 30
     MAX_HORIZON = 25
     TARGET_DIM = 1
@@ -96,11 +96,11 @@ if __name__ == "__main__":
         sky_encoder=sky_encoder,
         flow_encoder=flow_encoder,
         ts_feat_dim=len(full_mean),
-        ts_embed_dim=128,
-        fused_dim=512,
+        ts_embed_dim=64,
+        fused_dim=128,
         branch_d_model=128,
-        branch_num_layers=8,
-        branch_nhead=16,
+        branch_num_layers=2,
+        branch_nhead=8,
         branch_ff_dim=256,
         fusion_dropout=0.2,
         horizon=MAX_HORIZON,
