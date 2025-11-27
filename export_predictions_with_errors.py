@@ -21,7 +21,7 @@ from model import ImageEncoder, MultimodalForecasterWithBranchTransformers  # up
 def evaluate(model, loader, device, mean_targets, std_targets):
     """Runs model inference and returns predictions, targets, and metrics."""
     model.eval()
-    all_preds, all_targets = []
+    all_preds, all_targets = [],[]
 
     for sky_seq, flow_seq, ts_seq, targets, *_ in tqdm(loader, desc="Evaluating", leave=False):
         sky_seq, flow_seq, ts_seq = sky_seq.to(device), flow_seq.to(device), ts_seq.to(device)
