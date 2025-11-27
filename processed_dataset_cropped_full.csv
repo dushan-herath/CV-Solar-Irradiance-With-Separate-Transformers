@@ -1,5 +1,4 @@
 timestamp,image_path_sky,image_path_optical_flow,ghi,dni,dhi,temp,pressure
-9/1/2019 6:41,datasets/dataset_cropped/09_Metas/01/06/20190901064130_00160.jpg,datasets_flow/dataset_cropped/09_Metas/01/06/20190901064130_00160.jpg,3.8,0,3.5,19.5,959
 9/1/2019 6:42,datasets/dataset_cropped/09_Metas/01/06/20190901064200_00160.jpg,datasets_flow/dataset_cropped/09_Metas/01/06/20190901064200_00160.jpg,3.8,0,3.5,19.5,959
 9/1/2019 6:43,datasets/dataset_cropped/09_Metas/01/06/20190901064300_00160.jpg,datasets_flow/dataset_cropped/09_Metas/01/06/20190901064300_00160.jpg,4.5,0,4.3,19.5,959
 9/1/2019 6:44,datasets/dataset_cropped/09_Metas/01/06/20190901064400_00160.jpg,datasets_flow/dataset_cropped/09_Metas/01/06/20190901064400_00160.jpg,5.3,0,5.1,19.4,959
