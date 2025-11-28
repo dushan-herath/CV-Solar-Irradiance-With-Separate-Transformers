@@ -153,7 +153,7 @@ if __name__ == "__main__":
         flow_encoder=flow_encoder,
         ts_feat_dim=len(train_ds.feature_cols),
         ts_embed_dim=64,
-        fused_dim=128,
+        fused_dim=256,
         horizon=HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)

@@ -149,7 +149,7 @@ class CrossModalFusion(nn.Module):
 # TEMPORAL TRANSFORMER AFTER FUSION
 # =========================
 class TemporalTransformer(nn.Module):
-    def __init__(self, d_model: int, nhead: int = 4, num_layers: int = 2, dim_feedforward: int = 256, dropout: float = 0.1):
+    def __init__(self, d_model: int, nhead: int = 8, num_layers: int = 3, dim_feedforward: int = 256, dropout: float = 0.1):
         super().__init__()
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward,
