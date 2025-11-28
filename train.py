@@ -8,8 +8,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from dataset import IrradianceForecastDataset
-from model import ImageEncoder, MultimodalForecasterWithBranchTransformers
-
+from model import ImageEncoder, MultimodalForecaster  # <-- updated
 
 # ------------------ Training + Validation ------------------
 
@@ -26,19 +25,16 @@ def train_one_epoch(model, loader, optimizer, criterion, device, scaler):
 
         optimizer.zero_grad()
 
-        # Mixed Precision Forward Pass
         with torch.cuda.amp.autocast():
             preds = model(sky_seq, flow_seq, ts_seq)
             loss = criterion(preds, targets)
 
-        # Backward with GradScaler
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
 
         total_loss += loss.item()
         avg_loss = total_loss / (i + 1)
-
         loop.set_postfix({"batch_loss": loss.item(), "avg_loss": avg_loss}, refresh=True)
 
     return total_loss / len(loader)
@@ -108,10 +104,10 @@ if __name__ == "__main__":
 
     # --- Config ---
     CSV_PATH = "processed_dataset_cropped_full.csv"
-    BATCH_SIZE = 16
+    BATCH_SIZE = 64
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    IMG_SEQ_LEN = 30
+    IMG_SEQ_LEN = 5
     TS_SEQ_LEN = 30
     HORIZON = 25
     TARGET_DIM = 1
@@ -152,17 +148,12 @@ if __name__ == "__main__":
     sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
     flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
 
-    model = MultimodalForecasterWithBranchTransformers(
+    model = MultimodalForecaster(
         sky_encoder=sky_encoder,
         flow_encoder=flow_encoder,
         ts_feat_dim=len(train_ds.feature_cols),
         ts_embed_dim=64,
         fused_dim=128,
-        branch_d_model=128,
-        branch_num_layers=2,
-        branch_nhead=16,
-        branch_ff_dim=256,
-        fusion_dropout=0.2,
         horizon=HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)
@@ -183,8 +174,8 @@ if __name__ == "__main__":
         {"params": model.sky_encoder.parameters(), "lr": 1e-5},
         {"params": model.flow_encoder.parameters(), "lr": 1e-5},
         {"params": model.ts_encoder.parameters(), "lr": 1e-4},
-        {"params": model.fusion.parameters(), "lr": 1e-4},
-        #{"params": model.temporal.parameters(), "lr": 1e-4},
+        {"params": model.cross_fusion.parameters(), "lr": 1e-4},  # updated
+        {"params": model.temporal_tf.parameters(), "lr": 1e-4},    # updated
         {"params": model.head.parameters(), "lr": 1e-4},
     ], weight_decay=1e-4)
 
