@@ -145,8 +145,8 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
     # --- Model setup ---
-    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=False, freeze=False)
-    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=False, freeze=False)
+    sky_encoder = ImageEncoder(model_name="efficientnet_b0", pretrained=False, freeze=False)
+    flow_encoder = ImageEncoder(model_name="resnet50", pretrained=False, freeze=False)
 
     model = MultimodalForecaster(
         sky_encoder=sky_encoder,

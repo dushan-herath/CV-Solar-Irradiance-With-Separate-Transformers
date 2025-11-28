@@ -89,15 +89,15 @@ if __name__ == "__main__":
     print(f"Dataset initialized (VAL): {len(val_ds)} samples, horizon={MAX_HORIZON}")
 
     # --- Model setup ---
-    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
-    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+    sky_encoder = ImageEncoder(model_name="efficientnet_b0", pretrained=True, freeze=True)
+    flow_encoder = ImageEncoder(model_name="resnet50", pretrained=True, freeze=True)
 
     model = MultimodalForecaster(
         sky_encoder=sky_encoder,
         flow_encoder=flow_encoder,
         ts_feat_dim=len(full_mean),
         ts_embed_dim=64,
-        fused_dim=128,
+        fused_dim=256,
         horizon=MAX_HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)  # <-- updated

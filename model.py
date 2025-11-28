@@ -8,20 +8,37 @@ import random
 # IMAGE ENCODER (unchanged)
 # =========================
 class ImageEncoder(nn.Module):
-    def __init__(self, model_name: str = 'vit_base_patch16_224', pretrained: bool = True,
+    def __init__(self, model_name: str = 'efficientnet_b0', pretrained: bool = True,
                  freeze: bool = True, unfreeze_last: int = 0):
         super().__init__()
-        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0, global_pool='avg')
+
+        # Create backbone with no head
+        self.backbone = timm.create_model(
+            model_name,
+            pretrained=pretrained,
+            num_classes=0,
+            global_pool='avg'
+        )
         self.out_dim = self.backbone.num_features
 
+        # Freeze backbone
         if freeze:
             for p in self.backbone.parameters():
                 p.requires_grad = False
+
             if unfreeze_last > 0:
                 self._unfreeze_last_layers(unfreeze_last)
 
     def _unfreeze_last_layers(self, n: int):
+        """
+        Supports: Swin, ResNet, ConvNeXt, EfficientNet, MobileNetV3
+        Falls back to your existing warning.
+        """
         backbone_type = self.backbone.__class__.__name__.lower()
+
+        # ============================
+        # SWIN TRANSFORMER
+        # ============================
         if "swin" in backbone_type:
             layers = [self.backbone.layers[0], self.backbone.layers[1],
                       self.backbone.layers[2], self.backbone.layers[3]]
@@ -30,12 +47,20 @@ class ImageEncoder(nn.Module):
                     p.requires_grad = True
             for p in self.backbone.norm.parameters():
                 p.requires_grad = True
+
+        # ============================
+        # RESNET FAMILY
+        # ============================
         elif "resnet" in backbone_type:
             layers = [self.backbone.layer1, self.backbone.layer2,
                       self.backbone.layer3, self.backbone.layer4]
             for layer in layers[-n:]:
                 for p in layer.parameters():
                     p.requires_grad = True
+
+        # ============================
+        # CONVNEXT FAMILY
+        # ============================
         elif "convnext" in backbone_type:
             stages = self.backbone.stages
             for stage in stages[-n:]:
@@ -44,11 +69,46 @@ class ImageEncoder(nn.Module):
             if hasattr(self.backbone, "norm"):
                 for p in self.backbone.norm.parameters():
                     p.requires_grad = True
+
+        # ============================
+        # EFFICIENTNET FAMILY
+        # ============================
+        elif "efficientnet" in backbone_type:
+            blocks = list(self.backbone.blocks)
+            for block in blocks[-n:]:
+                for p in block.parameters():
+                    p.requires_grad = True
+
+            # Unfreeze final conv/bn if present
+            if hasattr(self.backbone, "conv_head"):
+                for p in self.backbone.conv_head.parameters():
+                    p.requires_grad = True
+            if hasattr(self.backbone, "bn2"):
+                for p in self.backbone.bn2.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # MOBILENETV3 FAMILY
+        # ============================
+        elif "mobilenetv3" in backbone_type:
+            blocks = list(self.backbone.blocks)
+            for block in blocks[-n:]:
+                for p in block.parameters():
+                    p.requires_grad = True
+
+            if hasattr(self.backbone, "conv_stem"):
+                for p in self.backbone.conv_stem.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # FALLBACK
+        # ============================
         else:
             print(f"Unfreeze last layers: please customize for backbone {backbone_type}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.backbone(x)
+
 
 # =========================
 # TIME SERIES ENCODER (unchanged)
