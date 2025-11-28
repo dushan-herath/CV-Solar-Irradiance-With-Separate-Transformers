@@ -71,7 +71,7 @@ class TS_Encoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x)
 
-
+"""
 # =========================
 # LEARNABLE POSITIONAL ENCODING
 # =========================
@@ -105,9 +105,12 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe.unsqueeze(0))                 # (1, T, D)
 
     def forward(self, x: torch.Tensor):
-
+        """
+        x: (B, T, D)
+        returns x + positional encodings for first T positions
+        """
         return x + self.pe[:, : x.size(1)]
-"""
+
 
 # =========================
 # CROSS-MODAL FUSION (replaces GatedFusion)
