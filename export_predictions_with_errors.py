@@ -23,9 +23,13 @@ def evaluate(model, loader, device, mean_targets, std_targets):
     model.eval()
     all_preds, all_targets = [], []
 
-    for sky_seq, flow_seq, ts_seq, targets, *_ in tqdm(loader, desc="Evaluating", leave=False):
-        sky_seq, flow_seq, ts_seq = sky_seq.to(device), flow_seq.to(device), ts_seq.to(device)
-        preds = model(sky_seq, flow_seq, ts_seq)
+    for sky_seq, flow_seq, mask_seq, ts_seq, targets, *_ in tqdm(loader, desc="Evaluating", leave=False):
+        sky_seq = sky_seq.to(device)
+        flow_seq = flow_seq.to(device)
+        mask_seq = mask_seq.to(device)
+        ts_seq = ts_seq.to(device)
+
+        preds = model(sky_seq, flow_seq, mask_seq, ts_seq)
 
         # Crop predictions if horizon mismatch
         if preds.shape[1] != targets.shape[1]:
@@ -89,18 +93,20 @@ if __name__ == "__main__":
     print(f"Dataset initialized (VAL): {len(val_ds)} samples, horizon={MAX_HORIZON}")
 
     # --- Model setup ---
-    sky_encoder = ImageEncoder(model_name="resnet152", pretrained=True, freeze=True)
-    flow_encoder = ImageEncoder(model_name="resnet152", pretrained=True, freeze=True)
+    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+    mask_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)  # new mask encoder
 
     model = MultimodalForecaster(
         sky_encoder=sky_encoder,
         flow_encoder=flow_encoder,
+        mask_encoder=mask_encoder,  # <-- added
         ts_feat_dim=len(full_mean),
         ts_embed_dim=64,
         fused_dim=256,
         horizon=MAX_HORIZON,
         target_dim=TARGET_DIM
-    ).to(DEVICE)  # <-- updated
+    ).to(DEVICE)
 
     if not os.path.exists("best_model.pth"):
         raise FileNotFoundError("best_model.pth not found.")
