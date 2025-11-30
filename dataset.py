@@ -39,7 +39,8 @@ class IrradianceForecastDataset(Dataset):
         self.img_size = img_size
         self.time_col = time_col
 
-        self.feature_cols = feature_cols or ["ghi", "dni", "dhi", "temp", "pressure"]
+        #self.feature_cols = feature_cols or ["ghi", "dni", "dhi", "temp", "pressure"]
+        self.feature_cols = feature_cols or ["ghi", "dni", "dhi", "temp"]
         self.target_cols = target_cols or ["ghi"]
 
         self.sky_col = "image_path_sky"
