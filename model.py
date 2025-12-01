@@ -243,15 +243,18 @@ class MultimodalForecaster(nn.Module):
             fused_dim=fused_dim
         )
 
+        # CLS token for temporal pooling
+        self.cls_token = nn.Parameter(torch.randn(1, 1, fused_dim))
+
         self.pos_enc = PositionalEncoding(fused_dim)
         self.temporal_tf = TemporalTransformer(d_model=fused_dim)
 
         # Regression head
         self.head = nn.Sequential(
-            nn.Linear(fused_dim, fused_dim//2),
+            nn.Linear(fused_dim, fused_dim // 2),
             nn.GELU(),
-            nn.LayerNorm(fused_dim//2),
-            nn.Linear(fused_dim//2, horizon * target_dim)
+            nn.LayerNorm(fused_dim // 2),
+            nn.Linear(fused_dim // 2, horizon * target_dim)
         )
 
         self.horizon = horizon
@@ -268,22 +271,28 @@ class MultimodalForecaster(nn.Module):
         sky_feats = self.sky_encoder(sky_imgs.view(B*T_img, C, H, W)).view(B, T_img, -1)
         flow_feats = self.flow_encoder(flow_imgs.view(B*T_img, C, H, W)).view(B, T_img, -1)
 
+        # Convert masks to RGB expected by encoder
         mask_imgs_rgb = mask_imgs.repeat(1, 1, 3, 1, 1)
-        mask_feats = self.mask_encoder(mask_imgs_rgb.view(B * T_img, 3, H, W)).view(B, T_img, -1)
-        #mask_feats = self.mask_encoder(mask_imgs.view(B*T_img, C, H, W)).view(B, T_img, -1)
+        mask_feats = self.mask_encoder(mask_imgs_rgb.view(B*T_img, 3, H, W)).view(B, T_img, -1)
 
-        # Encode TS (we expect ts to be (B, T_ts, ts_feat_dim))
-        ts_feats = self.ts_encoder(ts)  # (B, T_ts, ts_embed_dim)
+        # Encode TS (B, T_ts, ts_embed_dim)
+        ts_feats = self.ts_encoder(ts)
 
-        # Cross-modal fusion (returns (B, T_ts, fused_dim))
+        # Cross-modal fusion -> (B, T_ts, fused_dim)
         fused_feats = self.cross_fusion(sky_feats, flow_feats, mask_feats, ts_feats)
 
-        # Positional encoding + temporal transformer
-        fused_feats = self.pos_enc(fused_feats)
-        temporal_out = self.temporal_tf(fused_feats)
+        # --------- ADD CLS TOKEN BEFORE POSITIONAL ENCODING ---------
+        cls = self.cls_token.repeat(B, 1, 1)             # (B, 1, D)
+        fused_feats = torch.cat([cls, fused_feats], dim=1)  # (B, 1 + T_ts, D)
+        # ------------------------------------------------------------
 
-        # Pooling over time
-        context = temporal_out.mean(dim=1)
+        # Positional encoding + transformer
+        fused_feats = self.pos_enc(fused_feats)
+        temporal_out = self.temporal_tf(fused_feats)     # (B, 1 + T_ts, D)
+
+        # --------- CLS POOLING ---------
+        context = temporal_out[:, 0]  # take CLS token
+        # --------------------------------
 
         # Regression head
         out = self.head(context)
