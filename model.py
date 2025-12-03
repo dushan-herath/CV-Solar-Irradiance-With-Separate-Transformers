@@ -275,6 +275,9 @@ class MultimodalForecaster(nn.Module):
         mask_imgs_rgb = mask_imgs.repeat(1, 1, 3, 1, 1)
         mask_feats = self.mask_encoder(mask_imgs_rgb.view(B*T_img, 3, H, W)).view(B, T_img, -1)
 
+        # Temp
+        ts = torch.zeros_like(ts)
+
         # Encode TS (B, T_ts, ts_embed_dim)
         ts_feats = self.ts_encoder(ts)
 
