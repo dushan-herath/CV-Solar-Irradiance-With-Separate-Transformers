@@ -111,7 +111,7 @@ if __name__ == "__main__":
     import torch.multiprocessing as mp
     mp.freeze_support()
 
-    CSV_PATH = "processed_dataset_cropped_full.csv"
+    CSV_PATH = "dataset_full_1M.csv"
     BATCH_SIZE = 32
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

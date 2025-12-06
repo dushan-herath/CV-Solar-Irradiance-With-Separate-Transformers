@@ -43,9 +43,9 @@ class IrradianceForecastDataset(Dataset):
         self.feature_cols = feature_cols or ["ghi", "dni", "dhi", "temp"]
         self.target_cols = target_cols or ["ghi"]
 
-        self.sky_col = "image_path_sky"
-        self.flow_col = "image_path_optical_flow"
-        self.mask_col = "image_path_cloud_mask"   # <-- NEW
+        self.sky_col = "raw_image_path"
+        self.flow_col = "optical_flow_image_path"
+        self.mask_col = "cloud_mask_image_path"   # <-- NEW
 
         self.max_lookback = max(img_seq_len, ts_seq_len)
 
