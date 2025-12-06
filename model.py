@@ -179,7 +179,7 @@ class CrossModalFusion(nn.Module):
 
         # Now concatenating ts + sky_attn + flow_attn + mask_attn => ts_dim * 4
         self.proj = nn.Sequential(
-            nn.Linear(ts_dim * 4, fused_dim),
+            nn.Linear(ts_dim * 3, fused_dim),
             nn.GELU(),
             nn.LayerNorm(fused_dim),
             nn.Dropout(dropout)
@@ -201,7 +201,7 @@ class CrossModalFusion(nn.Module):
         flow_attn, _ = self.attn_flow(query=ts_feats, key=flow_feats_proj, value=flow_feats_proj)
         mask_attn, _ = self.attn_mask(query=ts_feats, key=mask_feats_proj, value=mask_feats_proj)
 
-        fused = torch.cat([ts_feats, sky_attn, flow_attn, mask_attn], dim=-1)  # (B, T_ts, ts_dim*4)
+        fused = torch.cat([ts_feats, sky_attn, flow_attn], dim=-1)  # (B, T_ts, ts_dim*4)
         fused = self.proj(fused)  # (B, T_ts, fused_dim)
         return fused
 
