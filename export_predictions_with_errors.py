@@ -102,7 +102,7 @@ if __name__ == "__main__":
         flow_encoder=flow_encoder,
         mask_encoder=mask_encoder,  # <-- added
         ts_feat_dim=len(full_mean),
-        ts_embed_dim=64,
+        ts_embed_dim=256,
         fused_dim=256,
         horizon=MAX_HORIZON,
         target_dim=TARGET_DIM
