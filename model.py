@@ -18,7 +18,7 @@ class ImageEncoder(nn.Module):
             model_name,
             pretrained=pretrained,
             num_classes=0,
-            global_pool='avg'
+            global_pool=''
         )
         self.out_dim = self.backbone.num_features
 
@@ -108,8 +108,15 @@ class ImageEncoder(nn.Module):
         else:
             print(f"Unfreeze last layers: please customize for backbone {backbone_type}")
 
+    # def forward(self, x: torch.Tensor) -> torch.Tensor:
+    #    return self.backbone(x)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        feat = self.backbone(x)  # (B, C, H, W) for CNNs
+        if feat.dim() == 4:
+            feat = torch.nn.functional.adaptive_avg_pool2d(feat, 1)  # (B, C, 1, 1)
+            feat = feat.view(feat.size(0), -1)                        # (B, C)
+        return feat
 
 
 # =========================

@@ -166,7 +166,7 @@ if __name__ == "__main__":
         flow_encoder=flow_encoder,
         mask_encoder=mask_encoder,
         ts_feat_dim=len(train_ds.feature_cols),
-        ts_embed_dim=32,
+        ts_embed_dim=64,
         fused_dim=256,
         horizon=HORIZON,
         target_dim=TARGET_DIM
