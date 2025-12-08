@@ -141,46 +141,55 @@ class CrossModalFusion(nn.Module):
         return fused
 
 
+
+# =========================
+# GATED FUSION
+# =========================
 class GatedFusion(nn.Module):
-    def __init__(self, sky_dim, flow_dim, mask_dim, ts_dim, fused_dim, dropout=0.1):
+    def __init__(self, sky_dim, flow_dim, mask_dim, ts_dim, fused_dim):
         super().__init__()
+        # Project all modalities to same dimension
+        self.sky_proj = nn.Linear(sky_dim, fused_dim)
+        self.flow_proj = nn.Linear(flow_dim, fused_dim)
+        self.mask_proj = nn.Linear(mask_dim, fused_dim)
+        self.ts_proj = nn.Linear(ts_dim, fused_dim)
 
-        # Project all to ts_dim
-        self.sky_proj = nn.Linear(sky_dim, ts_dim)
-        self.flow_proj = nn.Linear(flow_dim, ts_dim)
-        self.mask_proj = nn.Linear(mask_dim, ts_dim)
+        # Gates
+        self.gate_sky = nn.Linear(fused_dim, fused_dim)
+        self.gate_flow = nn.Linear(fused_dim, fused_dim)
+        self.gate_mask = nn.Linear(fused_dim, fused_dim)
+        self.gate_ts = nn.Linear(fused_dim, fused_dim)
 
-        # Gating layers (each predicts contribution)
-        self.gate_sky  = nn.Linear(ts_dim * 2, ts_dim)
-        self.gate_flow = nn.Linear(ts_dim * 2, ts_dim)
-        self.gate_mask = nn.Linear(ts_dim * 2, ts_dim)
-
-        self.out = nn.Sequential(
-            nn.Linear(ts_dim * 4, fused_dim),
-            nn.GELU(),
-            nn.LayerNorm(fused_dim),
-            nn.Dropout(dropout)
-        )
+        self.activation = nn.Sigmoid()
+        self.out_proj = nn.Linear(fused_dim, fused_dim)
 
     def forward(self, sky_feats, flow_feats, mask_feats, ts_feats):
-        # project
-        sky = self.sky_proj(sky_feats)
+        # sky_feats, flow_feats, mask_feats: (B, Seq_len_v, D)
+        # ts_feats: (B, T_ts, D)
+
+        # Project to common dim
+        sky = self.sky_proj(sky_feats)   # (B, Seq_len_v, D)
         flow = self.flow_proj(flow_feats)
         mask = self.mask_proj(mask_feats)
+        ts = self.ts_proj(ts_feats)      # (B, T_ts, D)
 
-        # concatenate with TS for gating
-        gate_sky  = torch.sigmoid(self.gate_sky(torch.cat([ts_feats, sky],  dim=-1)))
-        gate_flow = torch.sigmoid(self.gate_flow(torch.cat([ts_feats, flow], dim=-1)))
-        gate_mask = torch.sigmoid(self.gate_mask(torch.cat([ts_feats, mask], dim=-1)))
+        # Aggregate visual features across sequence
+        visual = sky + flow + mask       # (B, Seq_len_v, D)
+        visual_mean = visual.mean(dim=1, keepdim=True)  # (B, 1, D)
 
-        # gated features (element-wise)
-        sky_g  = sky  * gate_sky
-        flow_g = flow * gate_flow
-        mask_g = mask * gate_mask
+        # Broadcast TS to match visual
+        ts_exp = ts.mean(dim=1, keepdim=True)           # (B, 1, D)
 
-        fused = torch.cat([ts_feats, sky_g, flow_g, mask_g], dim=-1)
-        fused = self.out(fused)
+        # Compute gates
+        g_visual = torch.sigmoid(self.gate_sky(visual_mean))
+        g_ts = torch.sigmoid(self.gate_ts(ts_exp))
+
+        # Fuse
+        fused = g_visual * visual_mean + g_ts * ts_exp
+        fused = self.out_proj(fused)  # (B, 1, D)
         return fused
+
+
 
 # =========================
 # 5. TEMPORAL TRANSFORMER
