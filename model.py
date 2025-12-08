@@ -4,68 +4,116 @@ from torch import nn
 import timm
 import random
 
+
 # =========================
-# 1. IMAGE ENCODER (Spatial Features + Positional Embeddings)
+# IMAGE ENCODER (unchanged)
 # =========================
 class ImageEncoder(nn.Module):
     def __init__(self, model_name: str = 'resnet18', pretrained: bool = True,
                  freeze: bool = True, unfreeze_last: int = 0):
         super().__init__()
 
-        # CRITICAL: global_pool='' keeps the spatial grid (H, W)
+        # Create backbone with no head
         self.backbone = timm.create_model(
             model_name,
             pretrained=pretrained,
             num_classes=0,
-            global_pool='' 
+            global_pool='avg'
         )
-
-        # Automatically determine feature dimensions (C, H, W)
-        with torch.no_grad():
-            dummy = torch.zeros(1, 3, 224, 224)
-            feats = self.backbone(dummy)
-            self.feat_dim = feats.shape[1] # Channels (C)
-            self.h = feats.shape[2]        # Height (H)
-            self.w = feats.shape[3]        # Width (W)
-
-        self.out_dim = self.feat_dim
-
-        # CRITICAL: Spatial Positional Embeddings
-        # Learnable vector for each position in the 7x7 grid
-        self.spatial_pos_embed = nn.Parameter(torch.zeros(1, self.feat_dim, self.h, self.w))
-        nn.init.trunc_normal_(self.spatial_pos_embed, std=0.02)
+        self.out_dim = self.backbone.num_features
 
         # Freeze backbone
         if freeze:
             for p in self.backbone.parameters():
                 p.requires_grad = False
+
             if unfreeze_last > 0:
                 self._unfreeze_last_layers(unfreeze_last)
 
     def _unfreeze_last_layers(self, n: int):
-        # Basic unfreeze logic (simplified for brevity)
-        # You can paste your specific backbone-dependent logic here if needed
-        params = list(self.backbone.parameters())
-        for p in params[-n:]:
-            p.requires_grad = True
+        """
+        Supports: Swin, ResNet, ConvNeXt, EfficientNet, MobileNetV3
+        Falls back to your existing warning.
+        """
+        backbone_type = self.backbone.__class__.__name__.lower()
+
+        # ============================
+        # SWIN TRANSFORMER
+        # ============================
+        if "swin" in backbone_type:
+            layers = [self.backbone.layers[0], self.backbone.layers[1],
+                      self.backbone.layers[2], self.backbone.layers[3]]
+            for layer in layers[-n:]:
+                for p in layer.parameters():
+                    p.requires_grad = True
+            if hasattr(self.backbone, "norm"):
+                for p in self.backbone.norm.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # RESNET FAMILY
+        # ============================
+        elif "resnet" in backbone_type:
+            layers = [self.backbone.layer1, self.backbone.layer2,
+                      self.backbone.layer3, self.backbone.layer4]
+            for layer in layers[-n:]:
+                for p in layer.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # CONVNEXT FAMILY
+        # ============================
+        elif "convnext" in backbone_type:
+            stages = self.backbone.stages
+            for stage in stages[-n:]:
+                for p in stage.parameters():
+                    p.requires_grad = True
+            if hasattr(self.backbone, "norm"):
+                for p in self.backbone.norm.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # EFFICIENTNET FAMILY
+        # ============================
+        elif "efficientnet" in backbone_type:
+            blocks = list(self.backbone.blocks)
+            for block in blocks[-n:]:
+                for p in block.parameters():
+                    p.requires_grad = True
+
+            # Unfreeze final conv/bn if present
+            if hasattr(self.backbone, "conv_head"):
+                for p in self.backbone.conv_head.parameters():
+                    p.requires_grad = True
+            if hasattr(self.backbone, "bn2"):
+                for p in self.backbone.bn2.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # MOBILENETV3 FAMILY
+        # ============================
+        elif "mobilenetv3" in backbone_type:
+            blocks = list(self.backbone.blocks)
+            for block in blocks[-n:]:
+                for p in block.parameters():
+                    p.requires_grad = True
+
+            if hasattr(self.backbone, "conv_stem"):
+                for p in self.backbone.conv_stem.parameters():
+                    p.requires_grad = True
+
+        # ============================
+        # FALLBACK
+        # ============================
+        else:
+            print(f"Unfreeze last layers: please customize for backbone {backbone_type}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Input: (B, 3, H, W)
-        Output: (B, Spatial_Sequence_Len, C) -> e.g., (B, 49, C)
-        """
-        x = self.backbone(x) # (B, C, H, W)
-        
-        # Add spatial position info (broadcasts over batch)
-        x = x + self.spatial_pos_embed
-        
-        # Flatten spatial dims: (B, C, H, W) -> (B, C, H*W) -> (B, H*W, C)
-        x = x.flatten(2).transpose(1, 2)
-        return x
+        return self.backbone(x)
 
 
 # =========================
-# 2. TIME SERIES ENCODER
+# TIME SERIES ENCODER (unchanged)
 # =========================
 class TS_Encoder(nn.Module):
     def __init__(self, ts_feat_dim: int, ts_embed_dim: int = 128, hidden_dim: int = 128, dropout: float = 0.1):
@@ -87,28 +135,40 @@ class TS_Encoder(nn.Module):
 
 
 # =========================
-# 3. POSITIONAL ENCODING
+# SINUSOIDAL POSITIONAL ENCODING (Vaswani et al.)
 # =========================
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, max_len: int = 5000):
         super().__init__()
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, d_model)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe.unsqueeze(0))
+
+        # Create a [max_len, d_model] matrix of positional encodings
+        position = torch.arange(max_len).unsqueeze(1)               # (T, 1)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
+        )                                                           # (d_model/2)
+
+        pe = torch.zeros(max_len, d_model)                          # (T, D)
+        pe[:, 0::2] = torch.sin(position * div_term)                # even dims
+        pe[:, 1::2] = torch.cos(position * div_term)                # odd dims
+
+        # Register as buffer so it moves with model but is not trainable
+        self.register_buffer("pe", pe.unsqueeze(0))                 # (1, T, D)
 
     def forward(self, x: torch.Tensor):
+        """
+        x: (B, T, D)
+        returns x + positional encodings for first T positions
+        """
         return x + self.pe[:, : x.size(1)]
 
 
 # =========================
-# 4. CROSS-MODAL FUSION
+# CROSS-MODAL FUSION (now accepts mask branch)
 # =========================
 class CrossModalFusion(nn.Module):
     def __init__(self, sky_dim, flow_dim, mask_dim, ts_dim, fused_dim, n_heads=4, dropout=0.1):
         super().__init__()
+        # Project image features to match TS dimension
         self.sky_proj = nn.Linear(sky_dim, ts_dim)
         self.flow_proj = nn.Linear(flow_dim, ts_dim)
         self.mask_proj = nn.Linear(mask_dim, ts_dim)
@@ -117,32 +177,37 @@ class CrossModalFusion(nn.Module):
         self.attn_flow = nn.MultiheadAttention(embed_dim=ts_dim, num_heads=n_heads, batch_first=True)
         self.attn_mask = nn.MultiheadAttention(embed_dim=ts_dim, num_heads=n_heads, batch_first=True)
 
-        # Output projection
+        # Now concatenating ts + sky_attn + flow_attn + mask_attn => ts_dim * 4
         self.proj = nn.Sequential(
-            nn.Linear(ts_dim * 4, fused_dim),
+            nn.Linear(ts_dim * 2, fused_dim),
             nn.GELU(),
             nn.LayerNorm(fused_dim),
             nn.Dropout(dropout)
         )
 
     def forward(self, sky_feats, flow_feats, mask_feats, ts_feats):
-        # Project all visual features to TS dimension
-        sky_feats_proj = self.sky_proj(sky_feats)   
-        flow_feats_proj = self.flow_proj(flow_feats) 
-        mask_feats_proj = self.mask_proj(mask_feats) 
+        """
+        sky_feats:  (B, T_img, sky_dim)
+        flow_feats: (B, T_img, flow_dim)
+        mask_feats: (B, T_img, mask_dim)
+        ts_feats:   (B, T_ts, ts_dim)   <-- may have different temporal length
+        """
+        sky_feats_proj = self.sky_proj(sky_feats)     # (B, T_img, ts_dim)
+        #flow_feats_proj = self.flow_proj(flow_feats)  # (B, T_img, ts_dim)
+        #mask_feats_proj = self.mask_proj(mask_feats)  # (B, T_img, ts_dim)
 
-        # Cross-Attend: TS (Query) looks at ALL spatial patches (Key/Value)
+        # Cross-attend: query=ts_feats, key/value=image_feats_proj
         sky_attn, _ = self.attn_sky(query=ts_feats, key=sky_feats_proj, value=sky_feats_proj)
-        flow_attn, _ = self.attn_flow(query=ts_feats, key=flow_feats_proj, value=flow_feats_proj)
-        mask_attn, _ = self.attn_mask(query=ts_feats, key=mask_feats_proj, value=mask_feats_proj)
+        #flow_attn, _ = self.attn_flow(query=ts_feats, key=flow_feats_proj, value=flow_feats_proj)
+        #mask_attn, _ = self.attn_mask(query=ts_feats, key=mask_feats_proj, value=mask_feats_proj)
 
-        fused = torch.cat([ts_feats, sky_attn, flow_attn, mask_attn], dim=-1)
-        fused = self.proj(fused)
+        fused = torch.cat([ts_feats, sky_attn], dim=-1)  # (B, T_ts, ts_dim*4)
+        fused = self.proj(fused)  # (B, T_ts, fused_dim)
         return fused
 
 
 # =========================
-# 5. TEMPORAL TRANSFORMER
+# TEMPORAL TRANSFORMER AFTER FUSION
 # =========================
 class TemporalTransformer(nn.Module):
     def __init__(self, d_model: int, nhead: int = 8, num_layers: int = 3, dim_feedforward: int = 256, dropout: float = 0.1):
@@ -158,7 +223,7 @@ class TemporalTransformer(nn.Module):
 
 
 # =========================
-# 6. MULTIMODAL FORECASTER (Main Model)
+# MULTIMODAL FORECASTER (with mask branch)
 # =========================
 class MultimodalForecaster(nn.Module):
     def __init__(self, sky_encoder, flow_encoder, mask_encoder, ts_feat_dim, ts_embed_dim=64,
@@ -169,6 +234,7 @@ class MultimodalForecaster(nn.Module):
         self.mask_encoder = mask_encoder
         self.ts_encoder = TS_Encoder(ts_feat_dim=ts_feat_dim, ts_embed_dim=ts_embed_dim)
 
+        # Fusion & temporal modeling
         self.cross_fusion = CrossModalFusion(
             sky_dim=self.sky_encoder.out_dim,
             flow_dim=self.flow_encoder.out_dim,
@@ -177,10 +243,13 @@ class MultimodalForecaster(nn.Module):
             fused_dim=fused_dim
         )
 
+        # CLS token for temporal pooling
         self.cls_token = nn.Parameter(torch.randn(1, 1, fused_dim))
+
         self.pos_enc = PositionalEncoding(fused_dim)
         self.temporal_tf = TemporalTransformer(d_model=fused_dim)
 
+        # Regression head
         self.head = nn.Sequential(
             nn.Linear(fused_dim, fused_dim // 2),
             nn.GELU(),
@@ -192,46 +261,40 @@ class MultimodalForecaster(nn.Module):
         self.target_dim = target_dim
 
     def forward(self, sky_imgs, flow_imgs, mask_imgs, ts):
+        """
+        sky_imgs, flow_imgs, mask_imgs: (B, T_img, C, H, W)
+        ts: (B, T_ts, ts_feat_dim)
+        """
         B, T_img, C, H, W = sky_imgs.shape
 
-        # 1. ENCODE IMAGES (Spatial)
-        # Inputs: (B, T_img, C, H, W)
-        # We flatten batch and time to feed into CNN: (B*T_img, C, H, W)
-        # Output from encoder: (B*T_img, Spatial_Patches, C)  <-- e.g. 49 patches per image
-        sky_feats = self.sky_encoder(sky_imgs.view(B*T_img, C, H, W))
-        flow_feats = self.flow_encoder(flow_imgs.view(B*T_img, C, H, W))
-        
+        # Encode images (flatten time -> batch)
+        sky_feats = self.sky_encoder(sky_imgs.view(B*T_img, C, H, W)).view(B, T_img, -1)
+        flow_feats = self.flow_encoder(flow_imgs.view(B*T_img, C, H, W)).view(B, T_img, -1)
+
+        # Convert masks to RGB expected by encoder
         mask_imgs_rgb = mask_imgs.repeat(1, 1, 3, 1, 1)
-        mask_feats = self.mask_encoder(mask_imgs_rgb.view(B*T_img, 3, H, W))
+        mask_feats = self.mask_encoder(mask_imgs_rgb.view(B*T_img, 3, H, W)).view(B, T_img, -1)
 
-        # 2. RESHAPE FOR ATTENTION (FIXED)
-        # We need to merge Time and Space dimensions for the Key/Value sequence
-        # Target Shape: (B, T_img * Spatial_Patches, C)
-        # We use .reshape() because the encoder output might be non-contiguous due to transpose
-        sky_feats = sky_feats.reshape(B, -1, sky_feats.shape[-1])
-        flow_feats = flow_feats.reshape(B, -1, flow_feats.shape[-1])
-        mask_feats = mask_feats.reshape(B, -1, mask_feats.shape[-1])
-
-        # 3. ENCODE TS (Query)
-        # Shape: (B, T_ts, D)
+        # Encode TS (B, T_ts, ts_embed_dim)
         ts_feats = self.ts_encoder(ts)
 
-        # 4. CROSS FUSION
-        # Query: TS (B, T_ts, D)
-        # Key: All Image Patches from all timesteps (B, Total_Patches, D)
+        # Cross-modal fusion -> (B, T_ts, fused_dim)
         fused_feats = self.cross_fusion(sky_feats, flow_feats, mask_feats, ts_feats)
 
-        # 5. TEMPORAL TRANSFORMER
-        # Add CLS token
-        cls = self.cls_token.repeat(B, 1, 1)
-        fused_feats = torch.cat([cls, fused_feats], dim=1)
-        
-        # Positional Encoding + Transformer
+        # --------- ADD CLS TOKEN BEFORE POSITIONAL ENCODING ---------
+        cls = self.cls_token.repeat(B, 1, 1)             # (B, 1, D)
+        fused_feats = torch.cat([cls, fused_feats], dim=1)  # (B, 1 + T_ts, D)
+        # ------------------------------------------------------------
+
+        # Positional encoding + transformer
         fused_feats = self.pos_enc(fused_feats)
-        temporal_out = self.temporal_tf(fused_feats)
-        
-        # 6. HEAD (Predict from CLS token)
-        context = temporal_out[:, 0]
+        temporal_out = self.temporal_tf(fused_feats)     # (B, 1 + T_ts, D)
+
+        # --------- CLS POOLING ---------
+        context = temporal_out[:, 0]  # take CLS token
+        # --------------------------------
+
+        # Regression head
         out = self.head(context)
         out = out.view(B, self.horizon, self.target_dim)
         return out
@@ -242,16 +305,11 @@ class MultimodalForecaster(nn.Module):
 # =========================
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
 
-    # Create encoders 
-    # global_pool='' is now hardcoded inside ImageEncoder, so we don't need to pass it
+    # Create encoders (minimal: freeze backbones)
     sky_enc = ImageEncoder(model_name='convnextv2_tiny', pretrained=True, freeze=True)
     flow_enc = ImageEncoder(model_name='resnet18', pretrained=True, freeze=True)
     mask_enc = ImageEncoder(model_name='resnet18', pretrained=True, freeze=True)
-
-    print(f"Sky Encoder Output (H, W): ({sky_enc.h}, {sky_enc.w})")
-    print(f"Total Spatial Patches per Image: {sky_enc.h * sky_enc.w}")
 
     model = MultimodalForecaster(
         sky_encoder=sky_enc,
@@ -264,17 +322,12 @@ if __name__ == "__main__":
         target_dim=1
     ).to(device)
 
-    # Fake data for testing
+    # Fake data
     B, T_img, T_ts = 2, 5, 30
     sky_imgs = torch.randn(B, T_img, 3, 224, 224).to(device)
     flow_imgs = torch.randn(B, T_img, 3, 224, 224).to(device)
-    mask_imgs = torch.randn(B, T_img, 3, 224, 224).to(device)
+    mask_imgs = torch.randn(B, T_img, 3, 224, 224).to(device)  # cloud masks as 3-channel image inputs
     ts = torch.randn(B, T_ts, 5).to(device)
 
-    print("Running forward pass...")
-    try:
-        preds = model(sky_imgs, flow_imgs, mask_imgs, ts)
-        print("Success!")
-        print("preds.shape:", preds.shape)  # Expected: [B, horizon, target_dim]
-    except Exception as e:
-        print(f"Error: {e}")
+    preds = model(sky_imgs, flow_imgs, mask_imgs, ts)
+    print("preds.shape:", preds.shape)  # [B, horizon, target_dim]
