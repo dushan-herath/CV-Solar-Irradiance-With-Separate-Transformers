@@ -111,7 +111,7 @@ if __name__ == "__main__":
     import torch.multiprocessing as mp
     mp.freeze_support()
 
-    CSV_PATH = "dataset_full_30S.csv"
+    CSV_PATH = "dataset_full_1M.csv"
     BATCH_SIZE = 32
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -157,9 +157,9 @@ if __name__ == "__main__":
     # -------------------------------------------------
     # MODEL (now includes mask encoder)
     # -------------------------------------------------
-    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)
-    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)
-    mask_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)   # mask is simpler, smaller encoder
+    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+    flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
+    mask_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)   # mask is simpler, smaller encoder
 
     model = MultimodalForecaster(
         sky_encoder=sky_encoder,
