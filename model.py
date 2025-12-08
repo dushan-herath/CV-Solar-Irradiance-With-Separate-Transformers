@@ -143,55 +143,6 @@ class CrossModalFusion(nn.Module):
 
 
 # =========================
-# GATED FUSION
-# =========================
-class GatedFusion(nn.Module):
-    def __init__(self, sky_dim, flow_dim, mask_dim, ts_dim, fused_dim):
-        super().__init__()
-        # Project all modalities to same dimension
-        self.sky_proj = nn.Linear(sky_dim, fused_dim)
-        self.flow_proj = nn.Linear(flow_dim, fused_dim)
-        self.mask_proj = nn.Linear(mask_dim, fused_dim)
-        self.ts_proj = nn.Linear(ts_dim, fused_dim)
-
-        # Gates
-        self.gate_sky = nn.Linear(fused_dim, fused_dim)
-        self.gate_flow = nn.Linear(fused_dim, fused_dim)
-        self.gate_mask = nn.Linear(fused_dim, fused_dim)
-        self.gate_ts = nn.Linear(fused_dim, fused_dim)
-
-        self.activation = nn.Sigmoid()
-        self.out_proj = nn.Linear(fused_dim, fused_dim)
-
-    def forward(self, sky_feats, flow_feats, mask_feats, ts_feats):
-        # sky_feats, flow_feats, mask_feats: (B, Seq_len_v, D)
-        # ts_feats: (B, T_ts, D)
-
-        # Project to common dim
-        sky = self.sky_proj(sky_feats)   # (B, Seq_len_v, D)
-        flow = self.flow_proj(flow_feats)
-        mask = self.mask_proj(mask_feats)
-        ts = self.ts_proj(ts_feats)      # (B, T_ts, D)
-
-        # Aggregate visual features across sequence
-        visual = sky + flow + mask       # (B, Seq_len_v, D)
-        visual_mean = visual.mean(dim=1, keepdim=True)  # (B, 1, D)
-
-        # Broadcast TS to match visual
-        ts_exp = ts.mean(dim=1, keepdim=True)           # (B, 1, D)
-
-        # Compute gates
-        g_visual = torch.sigmoid(self.gate_sky(visual_mean))
-        g_ts = torch.sigmoid(self.gate_ts(ts_exp))
-
-        # Fuse
-        fused = g_visual * visual_mean + g_ts * ts_exp
-        fused = self.out_proj(fused)  # (B, 1, D)
-        return fused
-
-
-
-# =========================
 # 5. TEMPORAL TRANSFORMER
 # =========================
 class TemporalTransformer(nn.Module):
@@ -219,7 +170,7 @@ class MultimodalForecaster(nn.Module):
         self.mask_encoder = mask_encoder
         self.ts_encoder = TS_Encoder(ts_feat_dim=ts_feat_dim, ts_embed_dim=ts_embed_dim)
 
-        self.cross_fusion = GatedFusion(
+        self.cross_fusion = CrossModalFusion(
             sky_dim=self.sky_encoder.out_dim,
             flow_dim=self.flow_encoder.out_dim,
             mask_dim=self.mask_encoder.out_dim,
