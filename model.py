@@ -119,7 +119,7 @@ class CrossModalFusion(nn.Module):
 
         # Output projection
         self.proj = nn.Sequential(
-            nn.Linear(ts_dim * 2, fused_dim),
+            nn.Linear(ts_dim * 4, fused_dim),
             nn.GELU(),
             nn.LayerNorm(fused_dim),
             nn.Dropout(dropout)
@@ -136,10 +136,51 @@ class CrossModalFusion(nn.Module):
         flow_attn, _ = self.attn_flow(query=ts_feats, key=flow_feats_proj, value=flow_feats_proj)
         mask_attn, _ = self.attn_mask(query=ts_feats, key=mask_feats_proj, value=mask_feats_proj)
 
-        fused = torch.cat([ts_feats, sky_attn], dim=-1)
+        fused = torch.cat([ts_feats, sky_attn, flow_attn, mask_attn], dim=-1)
         fused = self.proj(fused)
         return fused
 
+
+class GatedFusion(nn.Module):
+    def __init__(self, sky_dim, flow_dim, mask_dim, ts_dim, fused_dim, dropout=0.1):
+        super().__init__()
+
+        # Project all to ts_dim
+        self.sky_proj = nn.Linear(sky_dim, ts_dim)
+        self.flow_proj = nn.Linear(flow_dim, ts_dim)
+        self.mask_proj = nn.Linear(mask_dim, ts_dim)
+
+        # Gating layers (each predicts contribution)
+        self.gate_sky  = nn.Linear(ts_dim * 2, ts_dim)
+        self.gate_flow = nn.Linear(ts_dim * 2, ts_dim)
+        self.gate_mask = nn.Linear(ts_dim * 2, ts_dim)
+
+        self.out = nn.Sequential(
+            nn.Linear(ts_dim * 4, fused_dim),
+            nn.GELU(),
+            nn.LayerNorm(fused_dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, sky_feats, flow_feats, mask_feats, ts_feats):
+        # project
+        sky = self.sky_proj(sky_feats)
+        flow = self.flow_proj(flow_feats)
+        mask = self.mask_proj(mask_feats)
+
+        # concatenate with TS for gating
+        gate_sky  = torch.sigmoid(self.gate_sky(torch.cat([ts_feats, sky],  dim=-1)))
+        gate_flow = torch.sigmoid(self.gate_flow(torch.cat([ts_feats, flow], dim=-1)))
+        gate_mask = torch.sigmoid(self.gate_mask(torch.cat([ts_feats, mask], dim=-1)))
+
+        # gated features (element-wise)
+        sky_g  = sky  * gate_sky
+        flow_g = flow * gate_flow
+        mask_g = mask * gate_mask
+
+        fused = torch.cat([ts_feats, sky_g, flow_g, mask_g], dim=-1)
+        fused = self.out(fused)
+        return fused
 
 # =========================
 # 5. TEMPORAL TRANSFORMER
@@ -169,7 +210,7 @@ class MultimodalForecaster(nn.Module):
         self.mask_encoder = mask_encoder
         self.ts_encoder = TS_Encoder(ts_feat_dim=ts_feat_dim, ts_embed_dim=ts_embed_dim)
 
-        self.cross_fusion = CrossModalFusion(
+        self.cross_fusion = GatedFusion(
             sky_dim=self.sky_encoder.out_dim,
             flow_dim=self.flow_encoder.out_dim,
             mask_dim=self.mask_encoder.out_dim,
