@@ -157,7 +157,7 @@ if __name__ == "__main__":
     # -------------------------------------------------
     # MODEL (now includes mask encoder)
     # -------------------------------------------------
-    sky_encoder = ImageEncoder(model_name="convnextv2_tiny", pretrained=True, freeze=False)
+    sky_encoder = ImageEncoder(model_name="convnextv2_tiny", pretrained=True, freeze=True)
     flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)
     mask_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)   # mask is simpler, smaller encoder
 
