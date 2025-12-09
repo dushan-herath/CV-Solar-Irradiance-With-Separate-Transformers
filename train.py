@@ -157,7 +157,7 @@ if __name__ == "__main__":
     # -------------------------------------------------
     # MODEL (now includes mask encoder)
     # -------------------------------------------------
-    sky_encoder = ImageEncoder(model_name="convnextv2_tiny", pretrained=True, freeze=True)
+    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)
     flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)
     mask_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=False)   # mask is simpler, smaller encoder
 
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         mask_encoder=mask_encoder,
         ts_feat_dim=len(train_ds.feature_cols),
         ts_embed_dim=64,
-        fused_dim=256,
+        fused_dim=2048,
         horizon=HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)

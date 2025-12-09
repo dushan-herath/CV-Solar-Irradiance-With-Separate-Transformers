@@ -93,7 +93,7 @@ if __name__ == "__main__":
     print(f"Dataset initialized (VAL): {len(val_ds)} samples, horizon={MAX_HORIZON}")
 
     # --- Model setup ---
-    sky_encoder = ImageEncoder(model_name="convnextv2_tiny", pretrained=True, freeze=True)
+    sky_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
     flow_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)
     mask_encoder = ImageEncoder(model_name="resnet18", pretrained=True, freeze=True)  # new mask encoder
 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         mask_encoder=mask_encoder,  # <-- added
         ts_feat_dim=len(full_mean),
         ts_embed_dim=64,
-        fused_dim=256,
+        fused_dim=2048,
         horizon=MAX_HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)
