@@ -179,7 +179,7 @@ class CrossModalFusion(nn.Module):
 
         # Now concatenating ts + sky_attn + flow_attn + mask_attn => ts_dim * 4
         self.proj = nn.Sequential(
-            nn.Linear(ts_dim * 2, fused_dim),
+            nn.Linear(ts_dim * 4, fused_dim),
             nn.GELU(),
             nn.LayerNorm(fused_dim),
             nn.Dropout(dropout)
@@ -193,15 +193,15 @@ class CrossModalFusion(nn.Module):
         ts_feats:   (B, T_ts, ts_dim)   <-- may have different temporal length
         """
         sky_feats_proj = self.sky_proj(sky_feats)     # (B, T_img, ts_dim)
-        #flow_feats_proj = self.flow_proj(flow_feats)  # (B, T_img, ts_dim)
-        #mask_feats_proj = self.mask_proj(mask_feats)  # (B, T_img, ts_dim)
+        flow_feats_proj = self.flow_proj(flow_feats)  # (B, T_img, ts_dim)
+        mask_feats_proj = self.mask_proj(mask_feats)  # (B, T_img, ts_dim)
 
         # Cross-attend: query=ts_feats, key/value=image_feats_proj
         sky_attn, _ = self.attn_sky(query=ts_feats, key=sky_feats_proj, value=sky_feats_proj)
-        #flow_attn, _ = self.attn_flow(query=ts_feats, key=flow_feats_proj, value=flow_feats_proj)
-        #mask_attn, _ = self.attn_mask(query=ts_feats, key=mask_feats_proj, value=mask_feats_proj)
+        flow_attn, _ = self.attn_flow(query=ts_feats, key=flow_feats_proj, value=flow_feats_proj)
+        mask_attn, _ = self.attn_mask(query=ts_feats, key=mask_feats_proj, value=mask_feats_proj)
 
-        fused = torch.cat([ts_feats, sky_attn], dim=-1)  # (B, T_ts, ts_dim*4)
+        fused = torch.cat([ts_feats, sky_attn, flow_attn, mask_attn], dim=-1)  # (B, T_ts, ts_dim*4)
         fused = self.proj(fused)  # (B, T_ts, fused_dim)
         return fused
 
