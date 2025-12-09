@@ -103,7 +103,7 @@ if __name__ == "__main__":
         mask_encoder=mask_encoder,  # <-- added
         ts_feat_dim=len(full_mean),
         ts_embed_dim=64,
-        fused_dim=2048,
+        fused_dim=128,
         horizon=MAX_HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)
