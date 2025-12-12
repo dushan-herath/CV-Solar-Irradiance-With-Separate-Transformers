@@ -272,77 +272,77 @@ class MultimodalForecaster(nn.Module):
         self.horizon = horizon
         self.target_dim = target_dim
 
-def forward(self, sky_imgs, flow_imgs, mask_imgs, ts):
-    """
-    sky_imgs, flow_imgs, mask_imgs: (B, T_img, C, H, W)
-    ts: (B, T_ts, ts_feat_dim)
-    """
-    B, T_img, C, H, W = sky_imgs.shape
+    def forward(self, sky_imgs, flow_imgs, mask_imgs, ts):
+        """
+        sky_imgs, flow_imgs, mask_imgs: (B, T_img, C, H, W)
+        ts: (B, T_ts, ts_feat_dim)
+        """
+        B, T_img, C, H, W = sky_imgs.shape
 
-    # -----------------------------
-    # 1. SKY + FLOW (already normalized in dataset)
-    # -----------------------------
-    sky_feats = self.sky_encoder(
-        sky_imgs.view(B * T_img, C, H, W)
-    ).view(B, T_img, -1)
+        # -----------------------------
+        # 1. SKY + FLOW (already normalized in dataset)
+        # -----------------------------
+        sky_feats = self.sky_encoder(
+            sky_imgs.view(B * T_img, C, H, W)
+        ).view(B, T_img, -1)
 
-    flow_feats = self.flow_encoder(
-        flow_imgs.view(B * T_img, C, H, W)
-    ).view(B, T_img, -1)
+        flow_feats = self.flow_encoder(
+            flow_imgs.view(B * T_img, C, H, W)
+        ).view(B, T_img, -1)
 
-    # -----------------------------
-    # 2. MASK BRANCH
-    # -----------------------------
-    # The masks are 1-channel tensors (0/1)
-    mask_imgs_1ch = mask_imgs.view(B * T_img, 1, H, W)
+        # -----------------------------
+        # 2. MASK BRANCH
+        # -----------------------------
+        # The masks are 1-channel tensors (0/1)
+        mask_imgs_1ch = mask_imgs.view(B * T_img, 1, H, W)
 
-    # Step A: Learn 1→3 channel semantic mapping
-    mask_imgs_rgb = self.mask_stem(mask_imgs_1ch)   # (B*T, 3, H, W)
+        # Step A: Learn 1→3 channel semantic mapping
+        mask_imgs_rgb = self.mask_stem(mask_imgs_1ch)   # (B*T, 3, H, W)
 
-    # Step B: Apply ImageNet normalization so ResNet18 behaves correctly
-    mean = torch.tensor([0.485, 0.456, 0.406], device=mask_imgs_rgb.device).view(1, 3, 1, 1)
-    std = torch.tensor([0.229, 0.224, 0.225], device=mask_imgs_rgb.device).view(1, 3, 1, 1)
-    mask_imgs_norm = (mask_imgs_rgb - mean) / std
+        # Step B: Apply ImageNet normalization so ResNet18 behaves correctly
+        mean = torch.tensor([0.485, 0.456, 0.406], device=mask_imgs_rgb.device).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=mask_imgs_rgb.device).view(1, 3, 1, 1)
+        mask_imgs_norm = (mask_imgs_rgb - mean) / std
 
-    # Step C: Pass normalized 3-channel mask representation to mask encoder
-    mask_feats = self.mask_encoder(mask_imgs_norm).view(B, T_img, -1)
+        # Step C: Pass normalized 3-channel mask representation to mask encoder
+        mask_feats = self.mask_encoder(mask_imgs_norm).view(B, T_img, -1)
 
-    # -----------------------------
-    # 3. TS branch
-    # -----------------------------
-    ts_feats = self.ts_encoder(ts)  # (B, T_ts, D)
+        # -----------------------------
+        # 3. TS branch
+        # -----------------------------
+        ts_feats = self.ts_encoder(ts)  # (B, T_ts, D)
 
-    # -----------------------------
-    # 4. Cross-modal fusion
-    # -----------------------------
-    fused_feats = self.cross_fusion(
-        sky_feats, flow_feats, mask_feats, ts_feats
-    )  # (B, T_ts, D)
+        # -----------------------------
+        # 4. Cross-modal fusion
+        # -----------------------------
+        fused_feats = self.cross_fusion(
+            sky_feats, flow_feats, mask_feats, ts_feats
+        )  # (B, T_ts, D)
 
-    # -----------------------------
-    # 5. CLS token insertion
-    # -----------------------------
-    cls = self.cls_token.repeat(B, 1, 1)   # (B, 1, D)
-    fused_feats = torch.cat([cls, fused_feats], dim=1)
+        # -----------------------------
+        # 5. CLS token insertion
+        # -----------------------------
+        cls = self.cls_token.repeat(B, 1, 1)   # (B, 1, D)
+        fused_feats = torch.cat([cls, fused_feats], dim=1)
 
-    # -----------------------------
-    # 6. Positional encoding + transformer
-    # -----------------------------
-    fused_feats = self.pos_enc(fused_feats)
-    temporal_out = self.temporal_tf(fused_feats)
+        # -----------------------------
+        # 6. Positional encoding + transformer
+        # -----------------------------
+        fused_feats = self.pos_enc(fused_feats)
+        temporal_out = self.temporal_tf(fused_feats)
 
-    # -----------------------------
-    # 7. CLS pooling
-    # -----------------------------
-    context = temporal_out[:, 0]  # (B, D)
+        # -----------------------------
+        # 7. CLS pooling
+        # -----------------------------
+        context = temporal_out[:, 0]  # (B, D)
 
-    # -----------------------------
-    # 8. Final regression head
-    # -----------------------------
-    out = self.head(context)
-    out = out.view(B, self.horizon, self.target_dim)
+        # -----------------------------
+        # 8. Final regression head
+        # -----------------------------
+        out = self.head(context)
+        out = out.view(B, self.horizon, self.target_dim)
 
-    return out
+        return out
 
 
 
