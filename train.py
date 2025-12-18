@@ -183,13 +183,13 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     optimizer = torch.optim.AdamW([
-        {"params": model.sky_encoder.parameters(), "lr": 1e-5},
-        {"params": model.flow_encoder.parameters(), "lr": 1e-5},
-        {"params": model.mask_encoder.parameters(), "lr": 1e-5},
-        {"params": model.ts_encoder.parameters(), "lr": 1e-4},
-        {"params": model.cross_fusion.parameters(), "lr": 1e-4},
-        {"params": model.temporal_tf.parameters(), "lr": 1e-4},
-        {"params": model.head.parameters(), "lr": 1e-4},
+        {"params": model.sky_encoder.parameters(), "lr": 3e-6},
+        {"params": model.flow_encoder.parameters(), "lr": 3e-6},
+        {"params": model.mask_encoder.parameters(), "lr": 3e-6},
+        {"params": model.ts_encoder.parameters(), "lr": 5e-5},
+        {"params": model.cross_fusion.parameters(), "lr": 5e-5},
+        {"params": model.temporal_tf.parameters(), "lr": 5e-5},
+        {"params": model.head.parameters(), "lr": 5e-5},
     ], weight_decay=1e-4)
 
     scaler = torch.amp.GradScaler(device=DEVICE.type if DEVICE.type == "cuda" else "cpu")
