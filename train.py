@@ -171,19 +171,7 @@ if __name__ == "__main__":
         horizon=HORIZON,
         target_dim=TARGET_DIM
     ).to(DEVICE)
-    
-    # -------------------------------------------------
-    # 🔥 FREEZE BATCHNORM (VERY IMPORTANT)
-    # -------------------------------------------------
-    def freeze_bn(m):
-        if isinstance(m, nn.BatchNorm2d):
-            m.eval()                      # stop running mean/var updates
-            for p in m.parameters():
-                p.requires_grad = False   # freeze gamma & beta
 
-    model.sky_encoder.apply(freeze_bn)
-    model.flow_encoder.apply(freeze_bn)
-    model.mask_encoder.apply(freeze_bn)
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
