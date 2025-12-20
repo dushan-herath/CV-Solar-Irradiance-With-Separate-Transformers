@@ -122,7 +122,7 @@ class CrossModalFusion(nn.Module):
         self.attn_mask = nn.MultiheadAttention(ts_dim, 4, batch_first=True)
 
         self.proj = nn.Sequential(
-            nn.Linear(ts_dim * 1, fused_dim),
+            nn.Linear(ts_dim * 2, fused_dim),
             nn.GELU(),
             nn.LayerNorm(fused_dim)
         )
@@ -136,7 +136,7 @@ class CrossModalFusion(nn.Module):
         flow_attn, _ = self.attn_flow(ts, flow, flow)
         mask_attn, _ = self.attn_mask(ts, mask, mask)
 
-        fused = torch.cat([ts], dim=-1)
+        fused = torch.cat([ts, sky_attn], dim=-1)
         return self.proj(fused)
 
 
