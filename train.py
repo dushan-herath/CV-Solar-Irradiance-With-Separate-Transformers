@@ -112,11 +112,11 @@ if __name__ == "__main__":
     mp.freeze_support()
 
     CSV_PATH = "dataset_full_1M.csv"
-    BATCH_SIZE = 8
+    BATCH_SIZE = 16
     NUM_EPOCHS = 25
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    IMG_SEQ_LEN = 2
-    TS_SEQ_LEN = 2
+    IMG_SEQ_LEN = 15
+    TS_SEQ_LEN = 15
     HORIZON = 25
     TARGET_DIM = 1
 
